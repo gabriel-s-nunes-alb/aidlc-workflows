@@ -59,6 +59,7 @@ resetAidlcEnv();
 
 const BUN = process.execPath; // the bun running this test
 const ORCH = join(AIDLC_SRC, "tools", "aidlc-orchestrate.ts");
+const LOG = join(AIDLC_SRC, "tools", "aidlc-log.ts");
 
 // The record-relative prefix every resolved per-unit path is rooted at, the
 // active intent's record dir (relativeRecordDir over the seeded default intent).
@@ -227,6 +228,18 @@ function runNext(proj: string): Directive {
       `runNext did not emit parseable JSON. status=${r.status}\n${r.stdout}\n${r.stderr}`,
     );
   }
+}
+
+/** Record a terminal REVIEW_COMPLETED so a reviewer-bearing stage clears the
+ *  §12a gate precondition before an approve. The design + code-generation
+ *  stages declare a reviewer; the report path refuses their approve without
+ *  this row. */
+function logReviewReady(proj: string, stage: string, reviewer: string): void {
+  spawnSync(
+    BUN,
+    [LOG, "review", "--stage", stage, "--reviewer", reviewer, "--iteration", "1", "--verdict", "READY", "--project-dir", proj],
+    { encoding: "utf-8" },
+  );
 }
 
 /** Run `aidlc-orchestrate.ts report ...` and parse the emitted directive. */
@@ -402,6 +415,10 @@ describe("t186 engine-driven per-unit for_each iteration (issue #368)", () => {
     seedBoltDag(proj, ["alpha", "beta"]);
     coverUnit(proj, "alpha", "functional-design", FD_REQUIRED_PRODUCES);
     coverUnit(proj, "beta", "functional-design", FD_REQUIRED_PRODUCES);
+    // functional-design declares a reviewer; record the review so the §12a
+    // gate precondition passes (this test targets the coverage guard, not the
+    // reviewer gate).
+    logReviewReady(proj, "functional-design", "aidlc-architecture-reviewer-agent");
     const d = runReport(proj, [
       "--stage",
       "functional-design",
@@ -530,6 +547,9 @@ describe("t186 engine-driven per-unit for_each iteration (issue #368)", () => {
     // Reporting the batch-1 approval must NOT trip the all-units per-unit guard
     // (which would deadlock the multi-batch swarm). The guard is scoped to exclude
     // the autonomous swarm, so this commits instead of erroring.
+    // code-generation declares a reviewer; record the review so the §12a gate
+    // precondition passes (orthogonal to the per-unit coverage guard under test).
+    logReviewReady(proj, "code-generation", "aidlc-architecture-reviewer-agent");
     const d = runReport(proj, [
       "--stage",
       "code-generation",

@@ -82,6 +82,7 @@ import {
   validateDirective,
 } from "./aidlc-directive.ts";
 import {
+  activeIntent,
   activeSpace,
   auditBlockField,
   type CheckboxLine,
@@ -970,6 +971,30 @@ type CodekbCtx = { projectDir: string; space: string; codekbRepo: string };
 // share the same construction instead of repeating the object literal.
 function codekbCtxFor(pd: string): CodekbCtx {
   return { projectDir: pd, space: activeSpace(pd), codekbRepo: codekbRepoName(pd) };
+}
+
+// Reviewer precondition support (§12a / RFC Track 1). True iff the active
+// intent's audit tail carries a terminal REVIEW_COMPLETED row for <slug> — the
+// proof that the reviewer step actually ran before the approval gate. The tool
+// actor `aidlc-log.ts review --verdict <v>` writes that row (Stage:<slug>,
+// Verdict:READY|NOT-READY). We match on the Stage field within a REVIEW_COMPLETED
+// block, so a NOT-READY-after-cap verdict counts as "the review happened" — the
+// precondition is hard on the review OCCURRING, soft on its verdict (the human
+// still decides at the gate). Reads across all shards of the active intent, the
+// same source the runtime-compile hook and buildWorkflowHeader use.
+function hasTerminalReview(projectDir: string, slug: string): boolean {
+  const space = activeSpace(projectDir);
+  const intent = activeIntent(projectDir, space) ?? undefined;
+  const audit = readAllAuditShards(projectDir, intent, space);
+  if (audit.length === 0) return false;
+  const stageFieldRe = new RegExp(`^\\*\\*Stage\\*\\*:\\s*${escapeRegexLiteral(slug)}\\s*$`, "m");
+  return findAllEvents(audit, "REVIEW_COMPLETED").some((e) => stageFieldRe.test(e.block));
+}
+
+// Minimal regex-literal escape for embedding a stage slug in a RegExp. Slugs are
+// [a-z0-9-] by schema, so this is belt-and-suspenders, but keep it correct.
+function escapeRegexLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Resolve a single artifact vocabulary name to its canonical aidlc-docs/... path
@@ -3184,6 +3209,27 @@ function handleReport(args: string[], projectDir: string | undefined): void {
       // Backfilled gate — tag the row Recovered=true so audit consumers can
       // tell the engine-opened gate from an organic gate-start.
       sequence.push(["gate-start", slug, "--recovered"]);
+    }
+    // Reviewer precondition (§12a / RFC Track 1). A stage that declares a
+    // `reviewer` cannot be approved until the reviewer step has actually run —
+    // proven by a terminal REVIEW_COMPLETED row for this slug in the audit tail.
+    // This turns a skipped review from a silent omission into a hard stop at the
+    // gate. Enforced on the HAPPY approve path only (a not-yet-completed gated
+    // stage entering approval); an idempotent re-report of an already-[x] stage
+    // (the completed branch above) is a replay whose review already happened, so
+    // it never reaches here. The check is soft on the VERDICT (a NOT-READY after
+    // the iteration cap still lets the human approve with findings noted) but
+    // hard on the review HAVING HAPPENED.
+    if (node.reviewer && !hasTerminalReview(pd, slug)) {
+      emit({
+        kind: "error",
+        message:
+          `Stage "${slug}" declares a reviewer (${node.reviewer}) but no REVIEW_COMPLETED ` +
+          "is recorded for it. Invoke the reviewer (stage-protocol §12a) and record the " +
+          "verdict with `aidlc-log.ts review --stage " + slug + " --reviewer " + node.reviewer +
+          " --verdict <READY|NOT-READY>` before approving.",
+      });
+      return;
     }
     sequence.push(approveArgs(slug, flags));
   } else if (isFinal) {

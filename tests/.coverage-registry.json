@@ -20,14 +20,14 @@
     "render-surface": "tui"
   },
   "counts": {
-    "total": 435,
+    "total": 438,
     "enumeratedByClass": {
       "function": 217,
-      "audit": 71,
+      "audit": 73,
       "scope": 9,
       "stage": 32,
       "hook": 12,
-      "subcommand": 87,
+      "subcommand": 88,
       "render-surface": 7
     },
     "coveredByClass": {
@@ -327,6 +327,20 @@
         }
       ],
       "status": "covered"
+    },
+    {
+      "unitClass": "audit",
+      "unitId": "REVIEW_COMPLETED",
+      "minMechanism": "none",
+      "coveredBy": [],
+      "status": "UNCOVERED"
+    },
+    {
+      "unitClass": "audit",
+      "unitId": "REVIEW_REQUESTED",
+      "minMechanism": "none",
+      "coveredBy": [],
+      "status": "UNCOVERED"
     },
     {
       "unitClass": "audit",
@@ -4134,6 +4148,13 @@
         }
       ],
       "status": "covered"
+    },
+    {
+      "unitClass": "subcommand",
+      "unitId": "aidlc-log review",
+      "minMechanism": "cli",
+      "coveredBy": [],
+      "status": "UNCOVERED"
     },
     {
       "unitClass": "subcommand",

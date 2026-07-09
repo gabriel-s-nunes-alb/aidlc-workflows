@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.5] - 2026-07-10
+
+Makes the optional stage `reviewer` step (stage-protocol §12a) **enforceable and observable**. Previously the reviewer was baked into the `run-stage` directive as data but invoked by prose alone — a diligent model ran it, a rushed one silently skipped it, and nothing recorded or required it. This release adds a `REVIEW_REQUESTED` / `REVIEW_COMPLETED` audit-event pair (emitted by the tool actor `aidlc-log.ts review`) and makes `aidlc-orchestrate.ts report --result approved` **refuse to commit a reviewer-bearing stage until a terminal `REVIEW_COMPLETED` for that stage is in the audit tail**. The precondition is hard on the review *having happened*, soft on its *verdict* — a NOT-READY-after-cap verdict still lets the human approve at the gate with findings noted. Re-copy your `dist/<harness>/` to pick up the enforced flow. This is the tactical "Track 1" of the reviewer-reliability RFC; the structural phase-decomposition "Track 2" is a separate future effort.
+
+* **New audit events `REVIEW_REQUESTED` / `REVIEW_COMPLETED`** — the framework event total is now 73. Emitted via `aidlc-log.ts review --stage <slug> --reviewer <agent> [--iteration <n>] [--verdict <READY|NOT-READY>]` (the `--verdict` form emits `REVIEW_COMPLETED`).
+* **`report --result approved` gate precondition** — a stage whose frontmatter declares a `reviewer` cannot be approved without a recorded terminal review for that stage; the engine returns an `error` directive naming the reviewer and the command to record the verdict. Stages with no reviewer are unaffected.
+* **Prose updated** — stage-protocol §12a and all four harness `SKILL.md` gate branches now instruct the conductor to record the verdict via `aidlc-log.ts review`, and note that the approve refuses without it.
+* No breaking change for scopes, stages, or existing commands; the only new requirement is that reviewer-bearing stages must record their review before approval (which the shipped conductor prose now does automatically).
+
 ## [2.3.4] - 2026-07-10
 
 The per-unit reviewer read-scope bound is now enforced deterministically, not just by prose. A new PreToolUse hook (`aidlc-reviewer-scope.ts`, the framework's 12th hook and second flow-altering one) refuses a dispatched reviewer's tool calls that reach into sibling units' `construction/` paths - file reads, writes, and grep/glob/shell patterns that span siblings - while a review is in flight, redirecting the reviewer to the contract paths it was passed. The conductor grants the enforcement window by writing `<record>/.aidlc-reviewer-dispatch.json` before invoking a per-unit reviewer (stage-protocol §12a step 1) and deleting it when the verdict is read (step 3); the record's `exempt` list is where the named-integration-point spot-check carve-out is granted. Hard-block on Claude Code, Kiro CLI, and Codex CLI. Kiro IDE ships no registration: its hook payloads carry no tool inputs (`toolArgs` is always empty), so a pre-tool matcher has nothing to inspect there and the prose bound governs. **Upgrade:** re-copy your `dist/<harness>/` shell into the project; Codex users also re-run the hook-trust pre-seed (`bun scripts/package.ts codex trust --project <abs-dir>`) - the new PreToolUse registration needs one new trust entry.
@@ -12,6 +21,7 @@ The per-unit reviewer read-scope bound is now enforced deterministically, not ju
 * Set `AIDLC_DISABLE_REVIEWER_SCOPE_HOOK=1` to disable enforcement (the escape hatch for false positives, e.g. a source tree with its own `construction/` directory); a stale dispatch record (older than 6h, a crashed review) is ignored and cleaned up automatically.
 * Registration per harness: Claude Code `settings.json` gains its first `PreToolUse` entry for file/search/shell tools; Kiro CLI wires the adapter's `reviewer-scope` target inside the two reviewer agents' JSON configs; Codex `hooks.json` gains a `PreToolUse` row (hence the new trust entry); Kiro IDE deliberately ships none (unenforceable seam, documented in the porting guide).
 * A reviewer-agent tool call touching `construction/` paths with no dispatch record is never blocked; it records an advisory drop surfaced by `/aidlc --doctor` (the conductor skipped the step-1 write).
+
 ## [2.3.3] - 2026-07-10
 
 `scope-change` now refuses to run under autonomous Construction, closing the gap its sibling `recompose` closed in 2.2.8: both verbs re-shape the live plan's EXECUTE/SKIP stage inclusion, and an unattended autonomous run has no human at the gate to approve the new shape. Previously the "never re-shape the plan under autonomy" rule was engine-enforced for `recompose` but prose-only for `scope-change`. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
@@ -56,6 +66,7 @@ Unit kinds prune the per-unit construction design matrix. Tag each Unit of Work 
 * NEW `produces_kinds:` stage frontmatter field (a map of artifact name to the unit kinds it applies to) on the four construction design stages. An artifact may live in `produces:` or `optional_produces:`; the schema validator rejects a map key that names no entry in either list, an unknown kind, or an empty kind list. An artifact not listed in the map applies to all kinds.
 * The engine prunes both the run-stage directive's `produces` paths (required and optional alike) and the per-unit coverage check to the current unit's kind, so the conductor is never pointed at, and the approve-path guard never demands, an artifact the unit does not owe. Kind pruning composes with `optional_produces:`: an optional artifact still resolves into the directive for the kinds it applies to and stays exempt from coverage.
 * A per-unit construction stage where every unit's required set prunes to empty now approves as a no-op (the stage does not apply to any unit) instead of deadlocking at the artifact guard.
+
 
 ## [2.2.17] - 2026-07-09
 
@@ -304,6 +315,7 @@ Gates the approval and interview checkpoints on deterministic proof that a real 
 Extends the 1M-context window to tier-pinned subagents, not just the orchestrator. The shipped `.claude/settings.json` already ran the orchestrator at `opus[1m]`, but the `ANTHROPIC_DEFAULT_*_MODEL` Bedrock pins carried bare model IDs, so a subagent selected by tier (the agent roster's `opus`/`sonnet` overrides, or any `sonnet`/`fable` usage that does not go through the `opus[1m]` alias) ran at 200K. The Fable, Opus, and Sonnet pins now carry the `[1m]` suffix so every use of those aliases gets the 1M window; Claude Code strips the suffix before the model ID reaches Bedrock, and the suffix is idempotent with the existing `opus[1m]` orchestrator pin. Haiku is left bare (Haiku 4.5 is a 200K model with no 1M variant). **Upgrade:** re-copy your `dist/claude/.claude/` shell into the project, or append `[1m]` to `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_FABLE_MODEL` in your own `settings.json` / `settings.local.json`. The 1M-context window requires Bedrock model access for those models.
 
 * `dist/claude/.claude/settings.json` — `ANTHROPIC_DEFAULT_FABLE_MODEL` is now `global.anthropic.claude-fable-5[1m]`, `ANTHROPIC_DEFAULT_OPUS_MODEL` is `global.anthropic.claude-opus-4-8[1m]`, and `ANTHROPIC_DEFAULT_SONNET_MODEL` is `global.anthropic.claude-sonnet-4-6[1m]` (were bare model IDs). `ANTHROPIC_DEFAULT_HAIKU_MODEL` is unchanged.
+
 
 ## [2.1.4] - 2026-06-29
 

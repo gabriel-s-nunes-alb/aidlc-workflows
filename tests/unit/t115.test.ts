@@ -592,3 +592,115 @@ describe("t115 report-path gate backfill carries Recovered", () => {
     expect(gateRows[0]).not.toContain("**Recovered**");
   }, 30000);
 });
+
+// ============================================================
+// Reviewer precondition (RFC Track 1 / §12a). A stage that declares a
+// `reviewer` cannot be approved until a terminal REVIEW_COMPLETED row for it
+// exists in the audit tail. requirements-analysis declares
+// reviewer: aidlc-product-lead-agent, so it is the test subject. The gate is
+// HARD on the review having happened, SOFT on the verdict (NOT-READY still
+// satisfies it). feasibility (no reviewer) is the negative control — its
+// approve is unaffected (proven by the existing gated-approve round-trip above).
+// ============================================================
+
+const LOG_TOOL = join(TOOLS_DIR, "aidlc-log.ts");
+
+function log(args: string[], p: string): CliResult {
+  const res = spawnSync(BUN, [LOG_TOOL, ...args, "--project-dir", p], {
+    encoding: "utf-8",
+  });
+  const stdout = res.stdout ?? "";
+  return { status: res.status ?? -1, out: `${stdout}${res.stderr ?? ""}`, stdout };
+}
+
+describe("t115 reviewer precondition (report refuses approve without a recorded review)", () => {
+  test("R1: approving a reviewer-bearing stage is REFUSED without a REVIEW_COMPLETED", () => {
+    const p = projWithState("state-mid-inception.md");
+    // Open the gate so approve's state precondition passes; the reviewer
+    // precondition is the thing under test.
+    expect(state(["gate-start", "requirements-analysis"], p).status).toBe(0);
+
+    const r = orchestrate(
+      ["report", "--stage", "requirements-analysis", "--result", "approved", "--user-input", "Approve"],
+      p,
+    );
+    expect(r.out).toContain('"kind":"error"');
+    expect(r.out).toContain("declares a reviewer");
+    // The transition was NOT committed — no GATE_APPROVED emitted.
+    expect(countEvent(p, "GATE_APPROVED")).toBe(0);
+  }, 30000);
+
+  test("R2: a recorded READY review unblocks the approve", () => {
+    const p = projWithState("state-mid-inception.md");
+    expect(state(["gate-start", "requirements-analysis"], p).status).toBe(0);
+
+    const rev = log(
+      ["review", "--stage", "requirements-analysis", "--reviewer", "aidlc-product-lead-agent", "--iteration", "1", "--verdict", "READY"],
+      p,
+    );
+    expect(rev.stdout).toContain('"emitted":"REVIEW_COMPLETED"');
+
+    const r = orchestrate(
+      ["report", "--stage", "requirements-analysis", "--result", "approved", "--user-input", "Approve"],
+      p,
+    );
+    expect(r.out).toContain('"kind":"done"');
+    expect(countEvent(p, "GATE_APPROVED")).toBe(1);
+  }, 30000);
+
+  test("R3: a NOT-READY verdict still satisfies the precondition (soft on verdict)", () => {
+    const p = projWithState("state-mid-inception.md");
+    expect(state(["gate-start", "requirements-analysis"], p).status).toBe(0);
+
+    log(
+      ["review", "--stage", "requirements-analysis", "--reviewer", "aidlc-product-lead-agent", "--iteration", "2", "--verdict", "NOT-READY"],
+      p,
+    );
+
+    const r = orchestrate(
+      ["report", "--stage", "requirements-analysis", "--result", "approved", "--user-input", "Approve despite findings"],
+      p,
+    );
+    expect(r.out).toContain('"kind":"done"');
+    expect(countEvent(p, "GATE_APPROVED")).toBe(1);
+  }, 30000);
+
+  test("R4: a review recorded for a DIFFERENT stage does not unblock this one", () => {
+    const p = projWithState("state-mid-inception.md");
+    expect(state(["gate-start", "requirements-analysis"], p).status).toBe(0);
+
+    // Review recorded for the wrong slug — must not satisfy requirements-analysis.
+    log(
+      ["review", "--stage", "user-stories", "--reviewer", "aidlc-product-lead-agent", "--iteration", "1", "--verdict", "READY"],
+      p,
+    );
+
+    const r = orchestrate(
+      ["report", "--stage", "requirements-analysis", "--result", "approved", "--user-input", "Approve"],
+      p,
+    );
+    expect(r.out).toContain('"kind":"error"');
+    expect(countEvent(p, "GATE_APPROVED")).toBe(0);
+  }, 30000);
+
+  test("R5: REVIEW_REQUESTED alone (no verdict) does NOT satisfy the precondition", () => {
+    const p = projWithState("state-mid-inception.md");
+    expect(state(["gate-start", "requirements-analysis"], p).status).toBe(0);
+
+    // Dispatch row only — no terminal verdict yet.
+    const req = log(
+      ["review", "--stage", "requirements-analysis", "--reviewer", "aidlc-product-lead-agent", "--iteration", "1"],
+      p,
+    );
+    expect(req.stdout).toContain('"emitted":"REVIEW_REQUESTED"');
+
+    const r = orchestrate(
+      ["report", "--stage", "requirements-analysis", "--result", "approved", "--user-input", "Approve"],
+      p,
+    );
+    expect(r.out).toContain('"kind":"error"');
+    expect(countEvent(p, "REVIEW_REQUESTED")).toBe(1);
+    expect(countEvent(p, "REVIEW_COMPLETED")).toBe(0);
+    expect(countEvent(p, "GATE_APPROVED")).toBe(0);
+  }, 30000);
+});

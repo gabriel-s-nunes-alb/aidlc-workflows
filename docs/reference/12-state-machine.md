@@ -217,6 +217,8 @@ Session hooks check for the active intent's `aidlc-state.md` (under `aidlc/space
 |---|---|---|
 | `DECISION_RECORDED` | `tools/aidlc-log.ts` | Fires before `AskUserQuestion` so options are captured |
 | `QUESTION_ANSWERED` | `tools/aidlc-log.ts` | Fires after user response |
+| `REVIEW_REQUESTED` | `tools/aidlc-log.ts` | Fires when the conductor dispatches the §12a reviewer sub-agent |
+| `REVIEW_COMPLETED` | `tools/aidlc-log.ts` | Fires when the reviewer verdict is read; a reviewer-bearing stage cannot be approved without a terminal one (enforced by `aidlc-orchestrate.ts report`) |
 
 ### Scope and configuration
 

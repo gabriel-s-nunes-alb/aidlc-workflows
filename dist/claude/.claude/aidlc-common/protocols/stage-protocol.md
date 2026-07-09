@@ -888,22 +888,30 @@ If the `run-stage` directive includes a `reviewer` field (non-null), the orchest
      (`**Reviewer:** <reviewer-agent-name>`), so the `SUBAGENT_COMPLETED` audit
      event records which reviewer ran. The reviewer's persona owns this contract.
 
-3. **Read verdict.** After the reviewer returns, delete `<record>/.aidlc-reviewer-dispatch.json` if one was written (the enforcement window closes with the review; a leftover record would keep refusing sibling access for later, unrelated work), then read the `## Review` section from the primary artifact:
+3. **Read verdict.** After the reviewer returns, delete `<record>/.aidlc-reviewer-dispatch.json` if one was written (the enforcement window closes with the review; a leftover record would keep refusing sibling access for later, unrelated work), then read the `## Review` section from the primary artifact. Then **record the outcome with the tool actor** so the review is observable and the gate can enforce it:
+
+   ```
+   bun .claude/tools/aidlc-log.ts review --stage <slug> --reviewer <directive.reviewer> --iteration <n> --verdict <READY|NOT-READY>
+   ```
+
+   (Optionally emit `REVIEW_REQUESTED` on dispatch by running the same command WITHOUT `--verdict` at step 1.) The `--verdict` form emits `REVIEW_COMPLETED`. Then branch:
    - **READY** → proceed to §13 learnings ritual then the approval gate
    - **NOT-READY** and `reviewIterations < reviewer_max_iterations` (default 2):
      - Increment review iteration counter
      - Re-invoke the stage's lead agent (inline or subagent per `directive.mode`) with the artifact + review findings. The builder addresses the findings and updates the artifact.
-     - Return to step 1 (re-invoke reviewer)
+     - Return to step 1 (re-invoke reviewer). Record each cycle with its own `--iteration <n>`.
    - **NOT-READY** and iterations exhausted:
-     - Proceed to approval gate with unresolved findings noted:
+     - Record the final `REVIEW_COMPLETED --verdict NOT-READY`, then proceed to approval gate with unresolved findings noted:
        "Reviewer found issues after N iterations. Presenting with unresolved findings for your decision."
+
+> **Gate precondition (enforced by the engine).** `aidlc-orchestrate.ts report --result approved` **refuses to commit** a reviewer-bearing stage until a terminal `REVIEW_COMPLETED` row for that stage exists in the audit tail. So the `aidlc-log.ts review --verdict …` call above is not optional bookkeeping — without it, the approval gate errors out. The precondition is **hard on the review having happened, soft on its verdict**: a NOT-READY-after-cap verdict still satisfies the precondition (the human decides the content at the gate), but skipping the reviewer entirely blocks the approve.
 
 ### What the reviewer does NOT do
 
 - Does not modify the artifact beyond appending `## Review`
 - Does not communicate with the builder directly (all mediated by orchestrator)
 - Does not access the builder's plan.md or memory.md
-- Does not block the workflow — the human always gets final say at the gate
+- Does not override the human — a NOT-READY verdict still lets the human approve at the gate with findings noted; but the review step itself is mandatory (the gate precondition above enforces it)
 - Does not fire for stages without a `reviewer` field in the directive
 
 ## 13. Learnings Ritual
