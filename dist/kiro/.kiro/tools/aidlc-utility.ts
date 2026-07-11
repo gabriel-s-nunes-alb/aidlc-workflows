@@ -189,11 +189,11 @@ Utilities:
   compose "<task>"  Propose a tailored EXECUTE/SKIP plan (mid-workflow: re-shape the pending stages)
   compose --report <path>  Compose from a scan report (triage findings into a fix-and-ship run)
   --new-scope "<task>"  Force the composer to synthesize a custom scope even when a stock scope matches
-  intent            List intents in the active space (read-only; --json for structured output)
-  intent <name>     Switch the active intent
-  space             List spaces (read-only; --json for structured output)
-  space <name>      Switch the active space (team)
-  space-create <name>  Create a new space (team) seeded from the framework baseline
+  intent list       List intents in the active space (read-only; --json for structured output)
+  intent switch <name>  Switch the active intent (bare intent <name> still works)
+  space list        List spaces (read-only; --json for structured output)
+  space switch <name>  Switch the active space (bare space <name> still works)
+  space create <name>  Create a new space (space-create <name> still works)
   codekb-path       Print the deterministic per-repo codekb directory (read-only)
   select-plugins [names]  Show or set enabled plugins (comma-separated names)
   --doctor          Run health check on hooks, settings, and directory structure
@@ -2518,6 +2518,25 @@ function handleDoctor(projectDir: string): void {
     });
   }
 
+  try {
+    const shadows: string[] = [];
+    for (const sp of listSpaces(projectDir)) {
+      if (RESERVED_RECORD_NAMES.has(sp.name)) shadows.push(`space '${sp.name}'`);
+    }
+    const active = activeSpace(projectDir);
+    for (const intent of listIntents(projectDir, active)) {
+      if (RESERVED_RECORD_NAMES.has(intent.slug)) shadows.push(`intent '${intent.slug}'`);
+    }
+    if (shadows.length > 0) {
+      results.push({
+        pass: true,
+        label: `Workspace names shadowing grammar verbs (advisory): ${shadows.join(", ")} - reachable via explicit switch; consider renaming.`,
+      });
+    }
+  } catch {
+    // Advisory only; a scan failure must not hide the main doctor report.
+  }
+
   // Cold-safe gate: only emit audit when an audit trail already exists. On a
   // pristine project (no audit shard / flat audit.md) doctor prints its health
   // report and creates NOTHING — it stays a pure read-only diagnostic. On an
@@ -3700,7 +3719,19 @@ function printSpaceListing(projectDir: string, asJson: boolean): void {
 // the structured query shape.
 function handleIntent(projectDir: string, positional: string[], flags: Record<string, string>): void {
   const asJson = flags.json === "true";
-  const target = positional[1];
+  const verbOrTarget = positional[1];
+  if (verbOrTarget === "list") {
+    printIntentListing(projectDir, asJson);
+    return;
+  }
+  if (verbOrTarget === "birth") {
+    handleIntentBirth(projectDir, flags);
+    return;
+  }
+  const target = verbOrTarget === "switch" ? positional[2] : verbOrTarget;
+  if (verbOrTarget === "switch" && !target) {
+    die("Usage: aidlc-utility intent switch <name>");
+  }
   if (!target) {
     printIntentListing(projectDir, asJson);
     return;
@@ -3767,7 +3798,19 @@ function handleIntent(projectDir: string, positional: string[], flags: Record<st
 // emits the structured shape.
 function handleSpace(projectDir: string, positional: string[], flags: Record<string, string>): void {
   const asJson = flags.json === "true";
-  const raw = positional[1];
+  const verbOrTarget = positional[1];
+  if (verbOrTarget === "list") {
+    printSpaceListing(projectDir, asJson);
+    return;
+  }
+  if (verbOrTarget === "create") {
+    handleSpaceCreate(projectDir, ["space-create", positional[2] ?? ""], flags);
+    return;
+  }
+  const raw = verbOrTarget === "switch" ? positional[2] : verbOrTarget;
+  if (verbOrTarget === "switch" && !raw) {
+    die("Usage: aidlc-utility space switch <name>");
+  }
   if (!raw) {
     printSpaceListing(projectDir, asJson);
     return;
@@ -3786,7 +3829,7 @@ function handleSpace(projectDir: string, positional: string[], flags: Record<str
   const spaces = listSpaces(projectDir);
   if (!spaces.some((s) => s.name === target)) {
     die(
-      `Unknown space "${target}". Existing: ${spaces.map((s) => s.name).join(", ")}. This command only switches between existing spaces. Do not create a space to recover from this error - creating one is a separate, deliberate move (/aidlc space-create <name>).`
+      `Unknown space "${target}". Existing: ${spaces.map((s) => s.name).join(", ")}. This command only switches between existing spaces. Do not create a space to recover from this error - creating one is a separate, deliberate move (/aidlc space create <name>, or legacy /aidlc space-create <name>).`
     );
   }
   setActiveSpaceCursor(projectDir, target);
@@ -3862,7 +3905,7 @@ function handleDetect(projectDir: string, flags: Record<string, string>): void {
   );
 }
 
-// `/aidlc space-create <name>` — seed a NEW space's memory. org.md is copied
+// `/aidlc space create <name>` (legacy `/aidlc space-create <name>`) - seed a NEW space's memory. org.md is copied
 // from spaces/default/memory/org.md (the always-present SEED baseline), plus
 // fresh empty team.md/project.md/phases stubs + the templates/ floor. A new team
 // starts at the framework baseline and earns its OWN practices — it does NOT
