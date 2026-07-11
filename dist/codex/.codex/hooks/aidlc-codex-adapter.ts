@@ -59,7 +59,6 @@ import { appendAuditEntry } from "../tools/aidlc-audit.ts";
 import { stateFilePath } from "../tools/aidlc-lib.ts";
 
 const HOOKS_DIR = dirname(fileURLToPath(import.meta.url));
-const target = process.argv[2] ?? "";
 
 interface CodexHookInput {
   hook_event_name?: string;
@@ -76,14 +75,15 @@ interface CodexHookInput {
   stop_hook_active?: boolean;
 }
 
+export async function run(target: string, input: string): Promise<number> {
 let rawInput = "";
 let codex: CodexHookInput = {};
 if (!process.stdin.isTTY) {
   try {
-    rawInput = await Bun.stdin.text();
+    rawInput = input;
     if (rawInput.length > 0) codex = JSON.parse(rawInput) as CodexHookInput;
   } catch {
-    process.exit(0); // malformed stdin — advisory hooks fail open
+    return 0; // malformed stdin — advisory hooks fail open
   }
 }
 
@@ -123,7 +123,7 @@ function pruneStale(): void {
   }
 }
 
-function replayAndExit(): never {
+function replayResponse(): { stdout: string; code: number; stderr?: string } {
   // Duplicate delivery: wait up to ~2s for the first runner's response, then
   // answer identically. If it never lands, fail open silently. stderr rides
   // the cache too so a reviewer-scope BLOCK (stderr + exit 2) replays
@@ -135,14 +135,12 @@ function replayAndExit(): never {
         code: number;
         stderr?: string;
       };
-      if (cached.stdout) process.stdout.write(cached.stdout);
-      if (cached.stderr) process.stderr.write(cached.stderr);
-      process.exit(cached.code);
+      return cached;
     } catch {
       Bun.sleepSync(100);
     }
   }
-  process.exit(0);
+  return { stdout: "", code: 0 };
 }
 
 function persistResponse(stdout: string, code: number, stderr?: string): void {
@@ -158,7 +156,10 @@ try {
   pruneStale();
   mkdirSync(slotDir); // atomic claim — throws EEXIST for the duplicate
 } catch {
-  replayAndExit();
+  const replay = replayResponse();
+  if (replay.stdout) process.stdout.write(replay.stdout);
+  if (replay.stderr) process.stderr.write(replay.stderr);
+  return replay.code;
 }
 
 // --- Core-hook subprocess plumbing ------------------------------------------
@@ -280,7 +281,7 @@ switch (target) {
     const wrapped = wrapContext(r.stdout, "SessionStart");
     persistResponse(wrapped, 0);
     if (wrapped) process.stdout.write(wrapped);
-    process.exit(0);
+    return 0;
   }
 
   case "audit-and-sensors": {
@@ -299,7 +300,7 @@ switch (target) {
       }
     }
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
   }
 
   case "state-sync": {
@@ -318,7 +319,7 @@ switch (target) {
       }
     }
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
   }
 
   case "runtime-compile": {
@@ -326,7 +327,7 @@ switch (target) {
     // the core hook's exact contract. Verbatim pipe.
     runCore("aidlc-runtime-compile.ts", rawInput);
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
   }
 
   case "validate-state": {
@@ -334,7 +335,7 @@ switch (target) {
     // SESSION_COMPACTED + recovery breadcrumb are all self-contained.
     runCore("aidlc-validate-state.ts", rawInput);
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
   }
 
   case "post-compact": {
@@ -349,7 +350,7 @@ switch (target) {
     const wrapped = wrapContext(r.stdout, "PostCompact");
     persistResponse(wrapped, 0);
     if (wrapped) process.stdout.write(wrapped);
-    process.exit(0);
+    return 0;
   }
 
   case "log-subagent": {
@@ -357,7 +358,7 @@ switch (target) {
     // ≥ 0.139.0 — doctor pins the minimum) + agent_id. Verbatim pipe.
     runCore("aidlc-log-subagent.ts", rawInput);
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
   }
 
   case "stop": {
@@ -366,7 +367,7 @@ switch (target) {
     const r = runCore("aidlc-stop.ts", rawInput);
     persistResponse(r.stdout, r.code);
     if (r.stdout) process.stdout.write(r.stdout);
-    process.exit(r.code);
+    return r.code;
   }
 
   case "reviewer-scope": {
@@ -390,9 +391,9 @@ switch (target) {
       persistResponse(r.stdout, r.code === 2 ? 2 : 0, r.stderr);
       if (r.code === 2) {
         process.stderr.write(r.stderr);
-        process.exit(2);
+        return 2;
       }
-      process.exit(0);
+      return 0;
     }
     if (tool === "apply_patch") {
       const command = (codex.tool_input?.command as string) ?? "";
@@ -419,12 +420,12 @@ switch (target) {
         if (r.code === 2) {
           persistResponse("", 2, r.stderr);
           process.stderr.write(r.stderr);
-          process.exit(2);
+          return 2;
         }
       }
     }
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
   }
 
   case "mint": {
@@ -441,10 +442,15 @@ switch (target) {
       // best-effort presence record — advisory
     }
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
   }
 
   default:
     persistResponse("", 0);
-    process.exit(0);
+    return 0;
+}
+}
+
+if (import.meta.main) {
+  process.exit(await run(process.argv[2] ?? "", await Bun.stdin.text()));
 }
