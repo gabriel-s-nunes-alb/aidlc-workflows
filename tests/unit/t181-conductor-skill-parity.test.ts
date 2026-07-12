@@ -72,6 +72,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       "harness/codex/skills/aidlc/SKILL.md",
       "harness/kiro-ide/skills/aidlc/SKILL.md",
       "harness/kiro/skills/aidlc/SKILL.md",
+      "harness/opencode/skills/aidlc/SKILL.md",
     ]);
   });
 

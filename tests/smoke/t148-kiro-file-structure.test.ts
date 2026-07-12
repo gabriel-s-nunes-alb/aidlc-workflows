@@ -125,6 +125,7 @@ describe("t148 dist/kiro file structure", () => {
       join(REPO_ROOT, "dist", "claude", ".claude", "agents"),
       join(K, "agents"), // dist/kiro (CLI)
       join(REPO_ROOT, "dist", "codex", ".codex", "agents"),
+      join(REPO_ROOT, "dist", "opencode", ".aidlc", "agents"),
     ]) {
       for (const f of readdirSync(tree).filter((n) => n.endsWith(".md"))) {
         expect(fmToolsOf(join(tree, f))).toBeUndefined();

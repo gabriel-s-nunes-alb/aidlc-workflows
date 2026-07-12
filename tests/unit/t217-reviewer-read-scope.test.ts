@@ -26,6 +26,7 @@ const HARNESS_SKILL_SOURCES = [
   { name: "kiro", path: join(REPO_ROOT, "harness", "kiro", SKILL) },
   { name: "kiro-ide", path: join(REPO_ROOT, "harness", "kiro-ide", SKILL) },
   { name: "codex", path: join(REPO_ROOT, "harness", "codex", SKILL) },
+  { name: "opencode", path: join(REPO_ROOT, "harness", "opencode", SKILL) },
 ];
 
 describe("t217 reviewer read-scope bound is stated on every surface", () => {

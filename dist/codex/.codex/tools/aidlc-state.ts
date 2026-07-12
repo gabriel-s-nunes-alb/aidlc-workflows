@@ -85,6 +85,8 @@ const HARNESS_DOC_DIRS = new Set([
   ".claude",
   ".kiro",
   ".codex",
+  ".opencode",
+  ".aidlc",
   ".git",
 ]);
 

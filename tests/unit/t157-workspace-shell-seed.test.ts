@@ -56,7 +56,7 @@ import { join } from "node:path";
 import { __resetGraphCache, loadRules } from "../../dist/claude/.claude/tools/aidlc-graph.ts";
 import { REPO_ROOT } from "../harness/fixtures.ts";
 
-const HARNESSES = ["claude", "kiro", "codex"] as const;
+const HARNESSES = ["claude", "kiro", "codex", "opencode"] as const;
 
 // The shipped method tree for a harness: dist/<h>/aidlc/spaces/default/memory/.
 const mem = (h: string, ...parts: string[]): string =>
@@ -138,6 +138,12 @@ describe("t157 seeded workspace shell + re-rooted .gitignore (SEED)", () => {
     );
     expect(codexConfig).toContain('AIDLC_RULES_DIR = "aidlc/spaces/default/memory"');
     expect(existsSync(join(REPO_ROOT, "dist", "codex", "AGENTS.md"))).toBe(true);
+    // opencode: the instructions glob in the project-root opencode.json + root AGENTS.md.
+    const opencodeConfig = JSON.parse(
+      readFileSync(join(REPO_ROOT, "dist", "opencode", "opencode.json"), "utf-8"),
+    ) as { instructions: string[] };
+    expect(opencodeConfig.instructions).toContain("aidlc/spaces/default/memory/**/*.md");
+    expect(existsSync(join(REPO_ROOT, "dist", "opencode", "AGENTS.md"))).toBe(true);
   });
 
   // === (a) dist-shell — SEED ships ONLY the shell, not P1/P4 territory ======

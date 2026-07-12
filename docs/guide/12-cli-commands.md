@@ -2,10 +2,11 @@
 
 All AI-DLC commands start with the orchestrator invocation. This chapter is a complete reference for every invocation pattern and flag.
 
-> **Invocation prefix differs by harness.** On Claude Code and Kiro IDE you type
-> `/aidlc`; on Codex CLI it is `$aidlc` (or `/skills` → aidlc). The flags and
-> behaviour below are identical either way — only the prefix changes. The examples
-> use `/aidlc`; substitute `$aidlc` on Codex. See [Running on Codex CLI](harnesses/codex-cli.md).
+> **Invocation prefix differs by harness.** On Claude Code, Kiro IDE, Kiro CLI,
+> and opencode you type `/aidlc`; on Codex CLI it is `$aidlc` (or `/skills` →
+> aidlc). The flags and behaviour below are identical either way — only the
+> prefix changes. The examples use `/aidlc`; substitute `$aidlc` on Codex. See
+> [Running on Codex CLI](harnesses/codex-cli.md).
 
 ---
 
@@ -132,7 +133,7 @@ Force the composer even when a stock scope would match. Works in three moments:
 /aidlc compose            (mid-workflow: re-shape the pending stages)
 ```
 
-**Behavior:** the conductor dispatches the composer agent, which reads your task (or the scan report, or the running workflow's state), runs the read-only `detect` scan, and proposes an EXECUTE/SKIP grid with a reason for every SKIP. You approve, edit, or reject at a gate. On approve: a stock match births directly; a custom grid is authored as a real scope (two files in the installed tree) and the workflow births on it in the same turn; an in-flight proposal lands as pending-stage suffix flips via the `recompose` verb (under the audit lock, strict-validated, `RECOMPOSED` audited). `--new-scope` forces synthesis; `--report <path>` seeds the triaged findings into the intent. The `/aidlc-compose` skill is a typeable shortcut over the same path. Mid-workflow you can also just say it in chat ("can we skip market research?") - the conductor recognizes a reshape request and routes it through the same gate and verb, no literal `compose` needed (on Kiro and Codex the literal verb remains the documented reliable path).
+**Behavior:** the conductor dispatches the composer agent, which reads your task (or the scan report, or the running workflow's state), runs the read-only `detect` scan, and proposes an EXECUTE/SKIP grid with a reason for every SKIP. You approve, edit, or reject at a gate. On approve: a stock match births directly; a custom grid is authored as a real scope (two files in the installed tree) and the workflow births on it in the same turn; an in-flight proposal lands as pending-stage suffix flips via the `recompose` verb (under the audit lock, strict-validated, `RECOMPOSED` audited). `--new-scope` forces synthesis; `--report <path>` seeds the triaged findings into the intent. The `/aidlc-compose` skill is a typeable shortcut over the same path. Mid-workflow you can also just say it in chat ("can we skip market research?") - the conductor recognizes a reshape request and routes it through the same gate and verb, no literal `compose` needed (on the non-Claude harnesses the literal verb remains the documented reliable path).
 
 See [Scopes and Depth - The Adaptive Composer](05-scopes-and-depth.md#the-adaptive-composer) for the full flow.
 

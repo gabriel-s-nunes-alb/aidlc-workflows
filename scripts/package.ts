@@ -159,7 +159,7 @@ function agentTierFromMd(s: string, srcPath: string): string {
 function projectTierFrontmatter(
   s: string,
   srcPath: string,
-  harness: "claude" | "codex" | "kiro",
+  harness: "claude" | "codex" | "kiro" | "opencode",
 ): string {
   // Only apply to files under agents/. Guard on the POSIX-normalized path
   // (srcPath carries the platform separator on Windows) because a stage .md
@@ -174,6 +174,9 @@ function projectTierFrontmatter(
   const lines: string[] = [];
   if (proj.model !== null) lines.push(`model: ${proj.model}`);
   if ("effort" in proj && proj.effort !== null) lines.push(`effort: ${proj.effort}`);
+  // opencode's reasoning-effort key is `variant:` (its native agent
+  // frontmatter name), projected from the same tier table.
+  if ("variant" in proj && proj.variant !== null) lines.push(`variant: ${proj.variant}`);
   // Rebuild the frontmatter line-wise: replace the tier line with the
   // projected keys, or drop it entirely when every key is omitted. Line-wise
   // filtering (not a regex splice) removes the tier line cleanly wherever it
@@ -237,7 +240,7 @@ function transform(
   content: Buffer,
   harnessDir: string,
   rulesRename: string | null,
-  harness?: "claude" | "codex" | "kiro",
+  harness?: "claude" | "codex" | "kiro" | "opencode",
 ): Buffer {
   if (srcPath.endsWith(".md")) {
     let s = substituteToken(content.toString("utf-8"), harnessDir);
@@ -395,7 +398,7 @@ function emitMemory(
   outRoot: string,
   harnessDir: string,
   rulesRename: string | null,
-  harness: "claude" | "codex" | "kiro",
+  harness: "claude" | "codex" | "kiro" | "opencode",
 ): string[] {
   const srcDir = join(CORE_ROOT, MEMORY_SRC);
   const written: string[] = [];
@@ -421,7 +424,7 @@ function emitMemorySeed(
   treeRoot: string,
   harnessDir: string,
   rulesRename: string | null,
-  harness: "claude" | "codex" | "kiro",
+  harness: "claude" | "codex" | "kiro" | "opencode",
 ): void {
   const srcDir = join(CORE_ROOT, MEMORY_SRC);
   if (!existsSync(srcDir)) return;
@@ -649,11 +652,10 @@ function buildTree(m: HarnessManifest, outRoot: string, seedFrom: string): strin
 function runTool(treeRoot: string, args: string[], rulesDirAbs?: string | null): void {
   const toolPath = join(treeRoot, args[0]);
   const rest = args.slice(1);
-  const harnessDir = treeRoot.endsWith(".kiro")
-    ? ".kiro"
-    : treeRoot.endsWith(".codex")
-      ? ".codex"
-      : ".claude";
+  // The tree root's basename IS the harness dir (dist/<name>/<harnessDir> or a
+  // tmp mirror of it) — derived open-set, so a new harness needs no edit here.
+  const leaf = treeRoot.slice(treeRoot.lastIndexOf(sep) + 1);
+  const harnessDir = leaf.startsWith(".") ? leaf : ".claude";
   const env: Record<string, string> = {
     ...process.env,
     AIDLC_SRC: treeRoot,
