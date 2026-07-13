@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.0] - 2026-07-14
+
+Reviewers are now verifiers: every declared review runs under an explicit **adversarial review contract**. The reviewer's job is to refute the artifact, not confirm it - it assumes defects exist and hunts for them, and READY is the verdict it fails to reach after trying to break the artifact, not the default it starts from. Findings must ground in machine-checkable evidence where it exists: the reviewer runs the validation tools its invocation lists (via shell) and checks the artifact against its acceptance criteria, its stage definition, and the consumed upstream contracts; a finding backed only by opinion is a suggestion, not grounds for NOT-READY. This is a prompt-only release - the contract is written once into stage-protocol §12a (so any future reviewer inherits it) with short domain-voiced restatements in the two reviewer personas; no new tools, schema fields, or agents. Two scope decisions are on record: "validate deterministically" is read as grounding in machine-checkable evidence that already exists (validation tools, tests, acceptance criteria, contracts), not as building new domain validators; and the self-healing budget requirement is read as iterations OR tokens, satisfied by the existing `reviewer_max_iterations` (default 2) with human escalation at exhaustion - no token budget is added. The other two verifier properties were already in place: reviewers project a different model class than producers by default (2.3.1 tiers), and budget exhaustion already escalates to the human with full context. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
+
+* Stage-protocol §12a step 2 now opens with the adversarial review contract: refute-don't-confirm posture, and evidence-grounding rules for findings. It applies to every stage that declares a `reviewer`, on all harnesses.
+* Both reviewer personas restate the contract in their own domain voice - the Product Lead hunts untestable acceptance criteria, uncovered requirements, and orphan stories; the Architecture Reviewer hunts broken references, circular dependencies, and cross-unit claims the passed contracts do not back. Identity-marker and read-scope contracts are unchanged.
+* The four harness orchestrator skills' reviewer steps carry a one-line restatement of the adversarial framing, following the read-scope precedent.
+* No behavior change to the review loop mechanics: verdict flow, `reviewer_max_iterations`, HITL escalation, dispatch records, and the read-scope hook are all as in 2.3.4.
 ## [2.3.7] - 2026-07-14
 
 The `upstream-coverage` sensor now matches the citation forms the framework's artifacts actually use, clearing the hundreds of false `SENSOR_FAILED` audit rows a Construction run accumulated. It previously demanded each consumed artifact's bare slug in every single written file; artifacts instead cite upstream by producing-stage directory path in their provenance header, and multi-artifact stages legitimately split citations across sibling deliverables. Real coverage gaps still fail. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
@@ -37,6 +45,7 @@ Completes the plugin mechanism with **install-time plugin selection** and the fu
 * The walking-skeleton ceremony reads a new `skeleton: on|off` scope frontmatter field instead of a hardcoded core-scope name set, so plugin scopes are first-class in the ceremony. `AWS_AIDLC_DEFAULT_SCOPE` naming a disabled scope now falls back to the sole enabled plugin's first scope instead of dying, so a plugin-only install starts from plain `/aidlc` - and the substitution is announced on stderr naming both scopes instead of happening silently.
 * Plugin stages must have a non-empty body after the frontmatter fence - a frontmatter-only stage compiles and routes while being behaviorally dead; it fails the plugin content tests, and the compose stage-file precheck skip-and-drops it at install time.
 * Breaking for CI/scripts: none.
+||||||| parent of 54945df (feat: reviewer-as-verifier - adversarial, evidence-grounded review (2.4.0))
 
 ## [2.3.4] - 2026-07-10
 
