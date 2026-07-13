@@ -866,6 +866,8 @@ describe("mechanismsOf is body-derived (milestone 3)", () => {
     "unit/t20.test.ts",
     "unit/t215-bolt-dag-selfheal.test.ts",
     "unit/t225-scope-name-decoupling.test.ts",
+    "unit/t235-ensemble-modes.test.ts",
+    "unit/t236-ensemble-evidence-gate.test.ts",
     "unit/t27.test.ts",
     "unit/t29.test.ts",
     "unit/t30-hook-session-end.test.ts",
