@@ -17,10 +17,14 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  HARNESS_MATRIX,
+  type ShippedHarnessName,
+} from "../harness/harness-matrix.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACKAGE_TS = join(REPO_ROOT, "scripts", "package.ts");
@@ -32,18 +36,32 @@ const CLAUDE_DIST = join(REPO_ROOT, "dist", "claude", ".claude");
 const STAGE_TABLE_BEGIN =
   "<!-- BEGIN: compiled stage graph via `bun aidlc-utility.ts stage-table` - do NOT hand-edit -->";
 const STAGE_TABLE_END = "<!-- END: compiled stage graph -->";
-// The COMMITTED projection — only existsSync-probed (never mutated) by the
-// "packager emits" assertions. The compose run below uses a FRESHLY BUILT copy
-// under tmp (see beforeAll) so this test never regenerates the committed dist.
-const PLUGIN_CLAUDE_COMMITTED = join(REPO_ROOT, "dist", "plugins", PLUGIN, "claude");
+
+function fileInventory(root: string, relative = ""): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(join(root, relative)).sort()) {
+    const rel = join(relative, entry);
+    if (statSync(join(root, rel)).isDirectory()) files.push(...fileInventory(root, rel));
+    else files.push(rel);
+  }
+  return files;
+}
+
+interface GraphStage {
+  slug?: string;
+  produces?: string[];
+  consumes?: Array<{ artifact?: string; required?: boolean }>;
+  sensors_applicable?: Array<{ id?: string }>;
+  enabled?: false;
+}
 
 // Absolute path to a stage's compiled node in a composed project.
-function graph(projectDir: string): Array<Record<string, any>> {
+function graph(projectDir: string): GraphStage[] {
   return JSON.parse(
     readFileSync(join(projectDir, ".claude", "tools", "data", "stage-graph.json"), "utf-8")
-  );
+  ) as GraphStage[];
 }
-function stage(projectDir: string, slug: string): Record<string, any> | undefined {
+function stage(projectDir: string, slug: string): GraphStage | undefined {
   return graph(projectDir).find((s) => s.slug === slug);
 }
 function stageSourcePath(projectDir: string, phase: string, slug: string): string {
@@ -80,21 +98,30 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
   let project: string;
   let pluginBuilt: string;
   let coreRunnerBefore: string;
+  const pluginBuilds = new Map<ShippedHarnessName, string>();
 
   beforeAll(() => {
     tmp = mkdtempSync(join(tmpdir(), "aidlc-t188-"));
 
-    // 1. Build the plugin projection into tmp via the target-dir seam — NEVER
-    //    regenerate the committed dist/ (write-mode package.ts rmSync's the
-    //    committed trees, which masks drift and races sibling tests under the
-    //    parallel integration tier). This exercises the real emitter in isolation.
-    pluginBuilt = join(tmp, "plugin", "claude");
-    const build = spawnSync(BUN, [PACKAGE_TS, "plugin", "build", PLUGIN, "claude", pluginBuilt], {
-      cwd: REPO_ROOT,
-      encoding: "utf-8",
-      timeout: TIMEOUT_MS - 5_000,
-    });
-    if (build.status !== 0) throw new Error(`plugin build failed: ${build.stderr}`);
+    // 1. Build every manifest-discovered projection into tmp via the target-dir
+    //    seam. This exercises the real emitter without mutating committed dist.
+    for (const harness of HARNESS_MATRIX) {
+      const built = join(tmp, "plugin", harness.name);
+      const build = spawnSync(
+        BUN,
+        [PACKAGE_TS, "plugin", "build", PLUGIN, harness.name, built],
+        {
+          cwd: REPO_ROOT,
+          encoding: "utf-8",
+          timeout: TIMEOUT_MS - 5_000,
+        },
+      );
+      if (build.status !== 0) {
+        throw new Error(`plugin build failed for ${harness.name}: ${build.stderr}`);
+      }
+      pluginBuilds.set(harness.name, built);
+    }
+    pluginBuilt = pluginBuilds.get("claude")!;
 
     // 2. Fresh base project = a copy of dist/claude/.claude (read-only source).
     project = join(tmp, "proj");
@@ -117,28 +144,53 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
       },
     });
     if (compose.status !== 0) throw new Error(`compose.ts failed: ${compose.stderr}`);
-  });
+  }, TIMEOUT_MS);
 
   afterAll(() => {
     if (tmp && existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
   });
 
-  // --- Packager emits the projection ---
-  test("packager emits a Claude host-plugin projection", () => {
-    expect(existsSync(join(PLUGIN_CLAUDE_COMMITTED, ".claude-plugin", "plugin.json"))).toBe(true);
-    expect(existsSync(join(PLUGIN_CLAUDE_COMMITTED, "hooks", "compose.ts"))).toBe(true);
-    expect(existsSync(join(PLUGIN_CLAUDE_COMMITTED, "hooks", "hooks.json"))).toBe(true);
-  });
+  // --- Packager emits every projection; Claude remains the compose E2E below ---
+  test("every harness projection carries its declared host manifest, wiring, and content", () => {
+    for (const harness of HARNESS_MATRIX) {
+      const built = pluginBuilds.get(harness.name)!;
+      const committed = join(REPO_ROOT, "dist", "plugins", PLUGIN, harness.name);
+      expect(existsSync(committed), `${harness.name}: committed projection`).toBe(true);
+      expect(fileInventory(committed), `${harness.name}: committed inventory`).toEqual(
+        fileInventory(built),
+      );
 
-  test("packager emits scopes, agents, and knowledge in the Claude projection", () => {
-    expect(existsSync(join(PLUGIN_CLAUDE_COMMITTED, "scopes", "test-pro-validation.md"))).toBe(true);
-    expect(existsSync(join(PLUGIN_CLAUDE_COMMITTED, "agents", "test-pro-metrics-agent.md"))).toBe(true);
-    expect(existsSync(join(PLUGIN_CLAUDE_COMMITTED, "knowledge", "test-pro-metrics-agent", "methodology.md"))).toBe(true);
-  });
-
-  test("all four harness projections emit", () => {
-    for (const h of ["claude", "codex", "kiro", "kiro-ide"]) {
-      expect(existsSync(join(REPO_ROOT, "dist", "plugins", PLUGIN, h))).toBe(true);
+      const manifestFile = join(
+        built,
+        harness.capabilities.plugin.manifestDir,
+        "plugin.json",
+      );
+      const hostManifest = JSON.parse(readFileSync(manifestFile, "utf-8")) as {
+        name?: string;
+      };
+      expect(hostManifest.name, harness.name).toBe(`aidlc-${PLUGIN}`);
+      expect(existsSync(join(built, "hooks", "compose.ts"))).toBe(true);
+      const wiring = readFileSync(
+        join(built, harness.capabilities.plugin.wiringFile),
+        "utf-8",
+      );
+      expect(wiring, `${harness.name}: harness dir wiring`).toContain(
+        `AIDLC_HARNESS_DIR=${harness.manifest.harnessDir}`,
+      );
+      expect(existsSync(join(built, "stages", "construction", "test-pro-integration.md"))).toBe(
+        true,
+      );
+      expect(existsSync(join(built, "contributions", "construction", "build-and-test.md"))).toBe(
+        true,
+      );
+      // #550 plugin content buckets: scopes, agents, and knowledge must project
+      // into EVERY harness (stronger than the pre-matrix Claude-only guard).
+      expect(existsSync(join(built, "scopes", "test-pro-validation.md")), `${harness.name}: scope`).toBe(true);
+      expect(existsSync(join(built, "agents", "test-pro-metrics-agent.md")), `${harness.name}: agent`).toBe(true);
+      expect(
+        existsSync(join(built, "knowledge", "test-pro-metrics-agent", "methodology.md")),
+        `${harness.name}: knowledge`,
+      ).toBe(true);
     }
   });
 
@@ -221,7 +273,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
 
   test("contribution merges consumes into the target stage node", () => {
     const bat = stage(project, "build-and-test");
-    const consumed = (bat?.consumes ?? []).map((c: any) => c.artifact);
+    const consumed = (bat?.consumes ?? []).map((c) => c.artifact);
     // BOTH test-pro consumes must land — not just the first (round-2 blocker:
     // the old parser dropped every entry after the first).
     expect(consumed).toContain("test-pro-testability-requirements");
@@ -229,17 +281,17 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     // ...and each authored `required: false` must be preserved, not flipped to
     // true by an empty `required` scan (the same blocker's second half).
     for (const art of ["test-pro-testability-requirements", "test-pro-test-harness-design"]) {
-      const entry = (bat?.consumes ?? []).find((c: any) => c.artifact === art);
+      const entry = (bat?.consumes ?? []).find((c) => c.artifact === art);
       expect(entry?.required).toBe(false);
     }
     // The pre-existing core consumes are untouched (still required: true).
-    const core = (bat?.consumes ?? []).find((c: any) => c.artifact === "code-generation-plan");
+    const core = (bat?.consumes ?? []).find((c) => c.artifact === "code-generation-plan");
     expect(core?.required).toBe(true);
   });
 
   test("contribution merges sensors into the target stage node", () => {
     const bat = stage(project, "build-and-test");
-    const sensors = (bat?.sensors_applicable ?? []).map((s: any) => s.id);
+    const sensors = (bat?.sensors_applicable ?? []).map((s) => s.id);
     expect(sensors).toContain("coverage-threshold");
     expect(sensors).toContain("requirement-coverage");
   });
@@ -301,8 +353,8 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     // must detect the missing slug and recompile, restoring all 34 stages — even
     // though no stage source changed (changed=false on the rerun).
     const graphPath = join(project, ".claude", "tools", "data", "stage-graph.json");
-    const full = JSON.parse(readFileSync(graphPath, "utf-8"));
-    const stripped = full.filter((s: any) => !String(s.slug ?? "").startsWith("test-pro-"));
+    const full = JSON.parse(readFileSync(graphPath, "utf-8")) as GraphStage[];
+    const stripped = full.filter((s) => !String(s.slug ?? "").startsWith("test-pro-"));
     expect(stripped.length).toBeLessThan(full.length); // sanity: we removed some
     writeFileSync(graphPath, JSON.stringify(stripped));
 
@@ -623,10 +675,10 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
   test("a BOM-prefixed contribution is not silently skipped (R5-C4)", () => {
     // A UTF-8 BOM before the frontmatter must not make the whole contribution a
     // no-op — the produces still merges (BOM stripped before the ^--- anchor).
-    const bom = "﻿" + [
+    const bom = `﻿${[
       "---", "target: build-and-test", "plugin: syn-bom",
       "adds:", "  produces:", "    - syn-bom-artifact", "---", "",
-    ].join("\n");
+    ].join("\n")}`;
     const { proj } = composeSynthetic("syn-bom", { "contributions/construction/build-and-test.md": bom });
     const body = readFileSync(join(proj, ".claude", "aidlc-common", "stages", "construction", "build-and-test.md"), "utf-8");
     expect(body).toContain("syn-bom-artifact"); // merged despite the BOM
@@ -676,7 +728,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     const hd = join(proj, "aidlc", "spaces", "default", "intents", ".aidlc-hooks-health");
     require("node:fs").mkdirSync(hd, { recursive: true });
     writeFileSync(join(hd, "session-start.last"), "2026-07-08T00:00:00Z"); // heartbeat present
-    writeFileSync(join(hd, "plugin-compose.drops"), dropLines.join("\n") + "\n");
+    writeFileSync(join(hd, "plugin-compose.drops"), `${dropLines.join("\n")}\n`);
     const r = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc-utility.ts"), "doctor"], {
       cwd: proj, encoding: "utf-8", timeout: TIMEOUT_MS - 5_000,
       env: { ...process.env, CLAUDE_PROJECT_DIR: proj },
@@ -896,7 +948,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     const linkBase = mkdtempSync(join(tmp, "gb-link-"));
     const link = join(linkBase, "lnk");
     symlinkSync(realDir, link);
-    for (const arg of [link, link + "/"]) {
+    for (const arg of [link, `${link}/`]) {
       const { code, out } = pluginBuild(arg);
       expect(code).toBe(1);
       expect(out).toContain("symlink");

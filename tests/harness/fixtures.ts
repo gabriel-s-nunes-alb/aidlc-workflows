@@ -30,6 +30,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -39,6 +40,7 @@ import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { seedCustomHarness } from "./custom-harness.ts";
+import type { ShippedHarnessName } from "./harness-matrix.ts";
 
 const HARNESS_DIR = dirname(fileURLToPath(import.meta.url));
 const requireHere = createRequire(import.meta.url);
@@ -578,19 +580,12 @@ export function setupIntegrationProject(
 // its own git-init'd sibling repos makes toplevel == dirname(common-dir) hold
 // for each repo, so the guard passes (the same posture setupCodexProject takes).
 //
-// Harness-parameterized so all three logic drivers (Claude SDK · Kiro ACP ·
-// Codex exec) reuse ONE fixture: each copies the shipped dist/<harness>/ shell
-// (engine dir + the sibling aidlc/ memory shell) into the root, exactly as
-// setupIntegrationProject / setupTuiProject / setupCodexProject do.
+// Harness-parameterized so every shipped distribution can reuse ONE fixture:
+// the matrix resolves any discovered harness's dist root, so live drivers and
+// deterministic fixture tests alike pick their row without touching this file.
 // ============================================================================
 
-/** Per-harness dist source paths for the journey shell. Reuses the same dist
- *  trees the other fixtures copy (AIDLC_SRC / KIRO_SRC / the codex shell). */
-const CLAUDE_DIST = join(REPO_ROOT, "dist", "claude");
-const KIRO_DIST = join(REPO_ROOT, "dist", "kiro");
-const CODEX_DIST = join(REPO_ROOT, "dist", "codex");
-
-export type JourneyHarness = "claude" | "kiro" | "codex";
+export type JourneyHarness = ShippedHarnessName;
 
 export interface WorkspaceJourney {
   /** The tmp workspace root (canonical realpath) — the project dir every driver
@@ -642,20 +637,19 @@ export function setupWorkspaceJourney(harness: JourneyHarness = "claude"): Works
   const home = join(root, ".home");
   mkdirSync(home, { recursive: true });
 
-  // 1. Copy the shipped harness shell: the engine dir + the sibling aidlc/ memory
-  //    shell (all three dist trees ship dist/<h>/aidlc/{active-space,spaces/default}).
-  if (harness === "kiro") {
-    cpSync(join(KIRO_DIST, ".kiro"), join(root, ".kiro"), { recursive: true });
-    cpSync(join(KIRO_DIST, "AGENTS.md"), join(root, "AGENTS.md"));
-    cpSync(join(KIRO_DIST, "aidlc"), join(root, "aidlc"), { recursive: true });
-  } else if (harness === "codex") {
-    cpSync(join(CODEX_DIST, ".codex"), join(root, ".codex"), { recursive: true });
-    cpSync(join(CODEX_DIST, ".agents"), join(root, ".agents"), { recursive: true });
-    cpSync(join(CODEX_DIST, "AGENTS.md"), join(root, "AGENTS.md"));
-    cpSync(join(CODEX_DIST, "aidlc"), join(root, "aidlc"), { recursive: true });
-  } else {
-    cpSync(join(CLAUDE_DIST, ".claude"), join(root, ".claude"), { recursive: true });
-    cpSync(join(CLAUDE_DIST, "aidlc"), join(root, "aidlc"), { recursive: true });
+  // 1. Copy the complete shipped distribution root. The matrix resolves the
+  //    manifest-backed dist row; copying its entries keeps this fixture agnostic
+  //    to engine-dir, root-file, and emitted-skill layout differences.
+  //    Loaded lazily, NOT at module scope: harness-matrix.ts walks harness/ and
+  //    dist/ at import time, and fixtures.ts is imported by sandbox tests (t52's
+  //    t48 sandbox) whose trees ship neither - a top-level import throws ENOENT
+  //    there. Same posture as resetSelectionSensitiveCaches above.
+  const { harnessByName } = requireHere(
+    "./harness-matrix.ts",
+  ) as typeof import("./harness-matrix.ts");
+  const distRoot = harnessByName(harness).distRoot;
+  for (const entry of readdirSync(distRoot)) {
+    cpSync(join(distRoot, entry), join(root, entry), { recursive: true });
   }
 
   // Pin the per-clone audit-shard token (gitignored on a real project) so any

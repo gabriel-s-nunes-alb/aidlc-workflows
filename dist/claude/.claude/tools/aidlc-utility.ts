@@ -193,7 +193,6 @@ Utilities:
   space             List spaces (read-only; --json for structured output)
   space <name>      Switch the active space (team)
   space-create <name>  Create a new space (team) seeded from the framework baseline
-  codekb-path       Print the deterministic per-repo codekb directory (read-only)
   select-plugins [names]  Show or set enabled plugins (comma-separated names)
   --doctor          Run health check on hooks, settings, and directory structure
   --stage <id>      Jump to a specific stage (by slug or number, e.g., code-generation or 3.5)
@@ -476,7 +475,7 @@ function removeListValues(content: string, field: string, values: ReadonlySet<st
   const blockRe = new RegExp(`^${field}:\\n((?:  - .+\\n)*)`, "m");
   const m = content.match(blockRe);
   if (!m) return content;
-  const kept = [...m[1].matchAll(/^  - (.+)$/gm)]
+  const kept = [...m[1].matchAll(/^ {2}- (.+)$/gm)]
     .map((x) => x[1])
     .filter((v) => {
       const bare = v.trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
@@ -489,10 +488,10 @@ function removeListValues(content: string, field: string, values: ReadonlySet<st
 }
 
 function removeConsumesEntries(content: string, artifacts: ReadonlySet<string>): string {
-  const blockRe = /^consumes:\n((?:  - artifact:.*\n(?:    (?:required|conditional_on):.*\n)*)*)/m;
+  const blockRe = /^consumes:\n((?: {2}- artifact:.*\n(?: {4}(?:required|conditional_on):.*\n)*)*)/m;
   const m = content.match(blockRe);
   if (!m) return content;
-  const kept = [...m[1].matchAll(/^  - artifact:\s*([\w-]+).*\n(?:    (?:required|conditional_on):.*\n)*/gm)]
+  const kept = [...m[1].matchAll(/^ {2}- artifact:\s*([\w-]+).*\n(?: {4}(?:required|conditional_on):.*\n)*/gm)]
     .filter((entry) => !artifacts.has(entry[1]))
     .map((entry) => entry[0]);
   const replacement = kept.length > 0 ? `consumes:\n${kept.join("")}` : "consumes: []\n";
@@ -3800,7 +3799,7 @@ function handleSpace(projectDir: string, positional: string[], flags: Record<str
   }
 }
 
-// `/aidlc codekb-path [--repo <name>] [--json]` — read-only. Prints the
+// `aidlc-utility.ts codekb-path [--repo <name>] [--json]` — read-only. Prints the
 // deterministic space-level per-repo codekb directory (forward-slash, workspace-
 // relative) the reverse-engineering stage writes its 9 artifacts into. The repo
 // is the caller-supplied --repo, else the engine-resolved codekbRepoName (the
