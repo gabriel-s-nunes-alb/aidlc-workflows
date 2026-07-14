@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.11] - 2026-07-14
+
+Revision counting now works for the Reverse Engineering gate. Rejecting the RE approval gate ("Request Changes") previously left `Revision Count` at 0 with no `GATE_REJECTED` row when the orchestrator honored the revision conversationally without running the reject verb: codekb artifact writes were invisible to the audit trail, so the approve-time backstop that backfills unrecorded rejects had nothing to see and excluded codekb stages outright. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
+
+* Codekb writes (Reverse Engineering's artifacts under `aidlc/spaces/<space>/codekb/`) now emit `ARTIFACT_CREATED`/`ARTIFACT_UPDATED` audit events like record-tree writes, with a `codekb > <repo> > <name>` context breadcrumb.
+* The approve-time gate-revision backstop covers codekb stages: revising an RE artifact at an open gate then approving backfills the missing `GATE_REJECTED` + `STAGE_REVISING` pair and increments `Revision Count`, as it already did for record-tree stages.
+
 ## [2.3.7] - 2026-07-14
 
 The `upstream-coverage` sensor now matches the citation forms the framework's artifacts actually use, clearing the hundreds of false `SENSOR_FAILED` audit rows a Construction run accumulated. It previously demanded each consumed artifact's bare slug in every single written file; artifacts instead cite upstream by producing-stage directory path in their provenance header, and multi-artifact stages legitimately split citations across sibling deliverables. Real coverage gaps still fail. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
