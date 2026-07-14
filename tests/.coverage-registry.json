@@ -4882,6 +4882,10 @@
           "mechanism": "cli"
         },
         {
+          "file": "tests/unit/t237-doctor-bundle.test.ts",
+          "mechanism": "cli"
+        },
+        {
           "file": "tests/unit/t27.test.ts",
           "mechanism": "cli"
         },

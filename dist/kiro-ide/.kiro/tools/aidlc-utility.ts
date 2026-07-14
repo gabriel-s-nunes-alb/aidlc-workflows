@@ -12,6 +12,7 @@ import {
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendAuditEntry, appendAuditEntryUnlocked } from "./aidlc-audit.ts";
+import { adaptLegacyResult, buildBundle } from "./aidlc-doctor-bundle.ts";
 import {
   artifactsRegistryFor,
   findCycles,
@@ -196,6 +197,7 @@ Utilities:
   codekb-path       Print the deterministic per-repo codekb directory (read-only)
   select-plugins [names]  Show or set enabled plugins (comma-separated names)
   --doctor          Run health check on hooks, settings, and directory structure
+  --doctor --bundle Export a redacted diagnostic bundle (timeline + findings, no work product)
   --stage <id>      Jump to a specific stage (by slug or number, e.g., code-generation or 3.5)
   --phase <name>    Jump to the first in-scope stage of a phase (e.g., construction or 3)
   --scope <scope>   Set or change scope (standalone or with --stage/--phase)
@@ -933,7 +935,7 @@ function pushNamingAdvisory(
   });
 }
 
-function handleDoctor(projectDir: string): void {
+function handleDoctor(projectDir: string, flags: Record<string, string> = {}): void {
   const results: Array<{ pass: boolean; label: string; fix?: string }> = [];
   const isWindows = process.platform === "win32";
 
@@ -2562,11 +2564,48 @@ function handleDoctor(projectDir: string): void {
     });
   }
 
+  // --bundle: after the live report, export a redacted diagnostic bundle
+  // built from the SAME findings (issue #575). A fresh doctor run always
+  // precedes it (we are inside that run), so the bundle never reflects a
+  // cached diagnosis. The bundle write never changes doctor's exit code.
+  if (flags.bundle === "true") {
+    try {
+      const liveFindings = results.map(adaptLegacyResult);
+      const tsToken = fsSafeTimestamp();
+      const outParent = flags["bundle-out"]
+        ? flags["bundle-out"]
+        : join(projectDir, "aidlc", "diagnostics");
+      mkdirSync(outParent, { recursive: true });
+      const bundle = buildBundle(projectDir, outParent, liveFindings, tsToken);
+      let out = "\nDiagnostic bundle created:\n";
+      out += `  ${bundle.archivePath ?? bundle.bundleDir}\n\n`;
+      out += "Findings:\n";
+      const topFindings = bundle.findings.filter((f) => f.severity !== "info").slice(0, 20);
+      if (topFindings.length === 0) {
+        out += "  (no errors or warnings)\n";
+      } else {
+        for (const f of topFindings) out += `  ${f.severity.toUpperCase()} ${f.id}\n`;
+      }
+      out += "\nNo source files or artifact bodies were included.\n";
+      if (bundle.manualShareNote) out += `\n${bundle.manualShareNote}\n`;
+      process.stdout.write(out);
+    } catch (e) {
+      // Bundle failure must not mask the live doctor result; report and go on.
+      process.stdout.write(`\nDiagnostic bundle could not be created: ${errorMessage(e)}\n`);
+    }
+  }
+
   // Exit non-zero on any check failure so CI and scripts get a clear
   // signal. Doctor's stdout carries the diagnostic regardless of exit
   // code — the orchestrator's tool-failure handler was updated in this
   // same change to print stdout (not stderr) for doctor.
   process.exit(failed > 0 ? 1 : 0);
+}
+
+// A filesystem-safe UTC timestamp token (isoTimestamp has colons that some
+// filesystems reject in names): 2026-07-14T15:26:31Z → 20260714T152631Z.
+function fsSafeTimestamp(): string {
+  return isoTimestamp().replace(/[-:]/g, "").replace(/\.\d+/, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -4933,7 +4972,7 @@ function main(): void {
       handleStatus(projectDir, flags);
       break;
     case "doctor":
-      handleDoctor(projectDir);
+      handleDoctor(projectDir, flags);
       break;
     case "intent-birth":
       handleIntentBirth(projectDir, flags);

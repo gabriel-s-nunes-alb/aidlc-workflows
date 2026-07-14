@@ -83,7 +83,7 @@ For handlers that require no LLM reasoning (print text, read/format files, check
 4. Handle audit logging inside the script via `appendAuditEntry` from `aidlc-audit.ts` (never hand-write `**Event**:` markdown blocks)
 5. Add the verb to the `aidlc-utility` usage string. If it renders a generated SKILL.md region, also document the corresponding `--check` guard in this chapter.
 
-The `--help`, `--version`, `--status`, and `--doctor` handlers are reference implementations.
+The `--help`, `--version`, `--status`, and `--doctor` handlers are reference implementations. `--doctor` also accepts `--bundle` (with an optional `--bundle-out <dir>`), which runs a fresh doctor pass and then exports a small, redacted diagnostic bundle; the shared `DoctorFinding` model and the bundle-assembly logic live in `core/tools/aidlc-doctor-bundle.ts`, so the live report and the bundle draw from one set of findings.
 
 The `codekb-path` handler is a read-only **query verb** (like `intent <name>` and `space`): it is dispatched from stage prose, emits NO audit event, drives NO SKILL.md task tracking, and creates NO directory (`mkdir`). It simply prints the canonical per-repo codekb directory the reverse-engineering stage writes its artifacts into, so prose never hand-derives that path.
 

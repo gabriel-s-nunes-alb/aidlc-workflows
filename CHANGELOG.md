@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.12] - 2026-07-14
+
+`/aidlc --doctor` gains a `--bundle` flag that exports a small, redacted diagnostic bundle so a misbehaving workflow can be debugged without sharing the whole project directory. The bundle reconstructs the workflow timeline from the audit trail (stage durations, gates, revisions, reviewer iterations), runs a fixed set of deterministic condition→remedy rules (unresolved gates, missing/malformed ensemble evidence, state/audit drift, stale or missing runtime graph, cold hooks, incomplete reviewer loops), and exports only allowlisted, normalized fields — never artifact, contribution, question, or memory bodies. Every emitted string is redacted (home→`~`, project root→`<project>`, intent ids hashed, secret-like values scrubbed); symlinks are never followed and per-file/total size is capped. The same shared `DoctorFinding` model backs both the live `--doctor` report and the bundle. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
+
+* `/aidlc --doctor --bundle` runs a fresh doctor pass and writes a bundle directory (`report.md`, `report.json`, `manifest.json`, and normalized `evidence/`) under `aidlc/diagnostics/`, packaged as a timestamped `.tar.gz` when a system `tar` is available and left as a directory (with manual-share instructions) otherwise. Override the output location with `--bundle-out <dir>`.
+* Diagnosis is deterministic (no LLM) and recovery bypasses (e.g. `AIDLC_DISABLE_ENSEMBLE_EVIDENCE=1`) are always reported as unsafe-to-automate with a prominent warning.
+* No new package dependency is introduced; the bundle never includes workspace source, raw state/audit/runtime-graph files, artifact/contribution/question/memory bodies, environment variables, or command output.
+
 ## [2.3.7] - 2026-07-14
 
 The `upstream-coverage` sensor now matches the citation forms the framework's artifacts actually use, clearing the hundreds of false `SENSOR_FAILED` audit rows a Construction run accumulated. It previously demanded each consumed artifact's bare slug in every single written file; artifacts instead cite upstream by producing-stage directory path in their provenance header, and multi-artifact stages legitimately split citations across sibling deliverables. Real coverage gaps still fail. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
